@@ -11,6 +11,8 @@ inputs:
   title:
     description: 'Check run title under which the report is created'
     default: PMD Source Code Analyzer report
+  line-filter:
+    description: 'JSON string or path to JSON file'
   token:
     description: >
       Personal access token (PAT) used to fetch the repository. The PAT is configured

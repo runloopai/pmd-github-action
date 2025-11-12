@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import {findResults} from './search'
 import {Inputs} from './constants'
-import {annotationsForPath} from './annotations'
+import {annotationsForPath, loadLineFilter} from './annotations'
 import {chain, splitEvery} from 'ramda'
 import {Annotation} from './github'
 import {getOctokit, context} from '@actions/github'
@@ -13,6 +13,10 @@ async function run(): Promise<void> {
     const path = core.getInput(Inputs.Path, {required: true})
     const name = core.getInput(Inputs.Name)
     const title = core.getInput(Inputs.Title)
+    const lineFilterPath = core.getInput(Inputs.LineFilter)
+
+    // Load line filter if provided
+    const lineFilter = loadLineFilter(lineFilterPath)
 
     const searchResult = await findResults(path)
     if (searchResult.filesToUpload.length === 0) {
@@ -26,7 +30,7 @@ async function run(): Promise<void> {
       core.debug(`Root artifact directory is ${searchResult.rootDirectory}`)
 
       const annotations: Annotation[] = chain(
-        annotationsForPath,
+        file => annotationsForPath(file, lineFilter),
         searchResult.filesToUpload
       )
       core.debug(

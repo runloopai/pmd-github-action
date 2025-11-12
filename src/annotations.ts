@@ -1,11 +1,15 @@
 import * as core from '@actions/core'
-import {File, PMDReport} from './pmd'
+import {File, PMDReport, Violation} from './pmd'
 import parser from 'fast-xml-parser'
 import fs from 'fs'
 import * as path from 'path'
 import {Annotation, AnnotationLevel} from './github'
 import {chain, map} from 'ramda'
 import decode from 'unescape'
+
+export interface LineFilter {
+  [filePath: string]: number[] | null
+}
 
 const XML_PARSE_OPTIONS = {
   allowBooleanAttributes: true,
@@ -29,7 +33,86 @@ function getWarningLevel(arg: string | number): AnnotationLevel {
   }
 }
 
-export function annotationsForPath(resultFile: string): Annotation[] {
+export function loadLineFilter(lineFilterPath: string): LineFilter | null {
+  try {
+    const trimmedLineFilterPath = lineFilterPath.trim()
+    if (!trimmedLineFilterPath || trimmedLineFilterPath === '') {
+      return null
+    }
+
+    let lineFilter: LineFilter
+
+    // Check if input contains braces, indicating it's a JSON string
+    if (
+      trimmedLineFilterPath.startsWith('{') &&
+      trimmedLineFilterPath.endsWith('}')
+    ) {
+      // Parse as JSON string directly
+      lineFilter = JSON.parse(trimmedLineFilterPath) as LineFilter
+    } else {
+      // Parse as file path
+      const fullPath = path.resolve(lineFilterPath)
+      if (!fs.existsSync(fullPath)) {
+        core.warning(`Line filter file not found: ${fullPath}`)
+        return null
+      }
+
+      const content = fs.readFileSync(fullPath, 'utf-8')
+      lineFilter = JSON.parse(content) as LineFilter
+    }
+
+    // Validate the line filter format
+    if (typeof lineFilter !== 'object' || lineFilter === null) {
+      core.warning('Invalid line filter format: must be an object')
+      return null
+    }
+
+    // Validate each entry
+    for (const [filePath, lines] of Object.entries(lineFilter)) {
+      if (
+        lines !== null &&
+        (!Array.isArray(lines) ||
+          !lines.every(line => Number.isInteger(line) && line > 0))
+      ) {
+        core.warning(
+          `Invalid line filter for file ${filePath}: must be an array of positive integers or null`
+        )
+        return null
+      }
+    }
+
+    core.info(`Loaded line filter with ${Object.keys(lineFilter).length} files`)
+    return lineFilter
+  } catch (error) {
+    core.warning(`Failed to load line filter: ${error}`)
+    return null
+  }
+}
+
+function shouldIncludeViolation(
+  violation: Violation,
+  relativeFilePath: string,
+  lineFilter: LineFilter
+): boolean {
+  const filterLines = lineFilter[relativeFilePath]
+  // If filterLines is null, allow all violations for this file
+  if (filterLines === null) {
+    return true
+  }
+  if (!filterLines) {
+    return false
+  }
+
+  const beginLine = Number(violation.beginline || 1)
+  const endLine = Number(violation.endline || violation.beginline || 1)
+
+  return filterLines.some(line => line >= beginLine && line <= endLine)
+}
+
+export function annotationsForPath(
+  resultFile: string,
+  lineFilter?: LineFilter | null
+): Annotation[] {
   core.info(`Creating annotations for ${resultFile}`)
   const root: string = process.env['GITHUB_WORKSPACE'] || ''
 
@@ -39,10 +122,20 @@ export function annotationsForPath(resultFile: string): Annotation[] {
   )
 
   return chain(file => {
+    const relativeFilePath = path.relative(root, file.name)
+
     return map(violation => {
+      // If line filter is provided, check if violation should be included
+      if (
+        lineFilter &&
+        !shouldIncludeViolation(violation, relativeFilePath, lineFilter)
+      ) {
+        return null
+      }
+
       const annotation: Annotation = {
         annotation_level: getWarningLevel(violation.priority),
-        path: path.relative(root, file.name),
+        path: relativeFilePath,
         start_line: Number(violation.beginline || 1),
         end_line: Number(violation.endline || violation.beginline || 1),
         title: `${violation.ruleset} ${violation.rule}`,
@@ -50,6 +143,8 @@ export function annotationsForPath(resultFile: string): Annotation[] {
       }
 
       return annotation
-    }, asArray(file.violation))
+    }, asArray(file.violation)).filter(
+      (annotation): annotation is Annotation => annotation !== null
+    )
   }, asArray<File>(result.pmd?.file))
 }
