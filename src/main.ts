@@ -72,7 +72,7 @@ async function createCheck(
   }
 
   const res = await octokit.checks.listForRef(req)
-  const existingCheckRun = res.data.check_runs.find(
+  const existingCheckRun = res?.data?.check_runs?.find(
     check => check.name === name
   )
 

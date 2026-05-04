@@ -67,6 +67,11 @@ export function loadLineFilter(lineFilterPath: string): LineFilter | null {
       return null
     }
 
+    if (Object.keys(lineFilter).length === 0) {
+      core.info('Line filter is empty, no filtering will be applied')
+      return null
+    }
+
     // Validate each entry
     for (const [filePath, lines] of Object.entries(lineFilter)) {
       if (
