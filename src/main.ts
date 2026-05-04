@@ -71,8 +71,8 @@ async function createCheck(
     ref: sha
   }
 
-  const res = await octokit.checks.listForRef(req)
-  const existingCheckRun = res?.data?.check_runs?.find(
+  const res = await octokit.rest.checks.listForRef(req)
+  const existingCheckRun = res.data.check_runs.find(
     check => check.name === name
   )
 
@@ -90,7 +90,7 @@ async function createCheck(
       }
     }
 
-    await octokit.checks.create(createRequest)
+    await octokit.rest.checks.create(createRequest)
   } else {
     const check_run_id = existingCheckRun.id
 
@@ -106,7 +106,7 @@ async function createCheck(
       }
     }
 
-    await octokit.checks.update(update_req)
+    await octokit.rest.checks.update(update_req)
   }
 }
 
